@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    History
+{% endblock %}
+
+{% block main %}
+    <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Shares</th>
+            <th>Price</th>
+            <th>Transacted</th>
+          </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+          <tr>
+            <td>
+              {% if row["symbol"] is not none %}
+                {{ row["symbol"] }}
+              {% endif %}
+            </td>
+            <td>
+              {% if row["share"] is not none %}
+                {{ row["share"] }}
+              {% endif %}
+            </td>
+            <td>
+              {% if row["price"] is not none %}
+                {{ row["price"] }}
+              {% endif %}
+            </td>
+            <td>
+              {% if row["transacted"] is not none %}
+                {{ row["transacted"] }}
+              {% endif %}
+            </td>
+          </tr>
+      {% endfor %}
+
+    </tbody>
+  </table>
+{% endblock %}
