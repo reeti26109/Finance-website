@@ -4,3 +4,4 @@ requests
 pytz
 sqlalchemy
 gunicorn
+psycopg2
