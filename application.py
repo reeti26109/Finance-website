@@ -2,8 +2,6 @@ import os
 import requests
 import pytz
 
-
-from cs50 import SQL
 from flask import Flask, flash, jsonify, redirect, render_template, request, session
 from flask_session import Session
 from tempfile import mkdtemp
@@ -36,8 +34,13 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
-# Configure CS50 Library to use SQLite database
-db = SQL("sqlite:///finance.db")
+from sqlalchemy import create_engine
+from sqlalchemy.orm import scoped_session, sessionmaker
+
+engine = create_engine(os.getenv("DATABASE_URL")) # database engine object from SQLAlchemy that manages connections to the database
+                                                  # DATABASE_URL is an environment variable that indicates where the database lives
+db = scoped_session(sessionmaker(bind=engine))    # create a 'scoped session' that ensures different users' interactions with the
+                                                  # database are kept separate
 
 # Make sure API key is set
 if not os.environ.get("API_KEY"):
@@ -48,7 +51,7 @@ if not os.environ.get("API_KEY"):
 @login_required
 def index():
     rows= db.execute('''SELECT * FROM stock
-                        WHERE username= %s''',session["user"])
+                        WHERE username= :username''',{"username":session["user"]}).fetchall()
     for row in rows:
         symbol= row['symbol']
         key = os.environ.get("API_KEY")
@@ -57,14 +60,15 @@ def index():
         share= row['share']
         updatedtotal= updatedprice*share
         db.execute(''' UPDATE stock
-                        SET price=%s,total=%s
-                        WHERE username = %s AND symbol=%s
-                        ''',f'${updatedprice}',f'${updatedtotal}',session["user"],symbol)
-    total=db.execute("SELECT total FROM stock WHERE username=:username", username=session["user"])
+                        SET price=:price,total=:total
+                        WHERE username = :username AND symbol=:symbol
+                        ''',{"price":f'${updatedprice}',"total":f'${updatedtotal}',"username":session["user"],"symbol":symbol})
+        db.commit()
+    total=db.execute("SELECT total FROM stock WHERE username=:username", {"username":session["user"]}).fetchall()
     sum=0
     for i in range(len(total)):
         sum+=float(total[i]['total'][1:len(total[i]['total'])])
-    cash= db.execute("SELECT cash FROM users WHERE username = :username", username=session["user"])[0]['cash']
+    cash= db.execute("SELECT cash FROM users WHERE username = :username", {"username":session["user"]}).fetchall()[0]['cash']
     cash=round(float(cash[1:len(cash)]),2)
     total_cash=cash+sum
     total_cash=round(total_cash,2)
@@ -80,12 +84,12 @@ def buy():
     else:
         symbol= request.form.get("symbol")
         symbol=symbol.upper()
-        samesymbol_price=db.execute("SELECT total FROM stock WHERE symbol = :symbol AND username=:username",symbol=symbol, username=session["user"])
+        samesymbol_price=db.execute("SELECT total FROM stock WHERE symbol = :symbol AND username=:username",{"symbol":symbol, "username":session["user"]}).fetchall()
         share= float(request.form.get("share"))
         key = os.environ.get("API_KEY")
         resp = requests.get(f'https://cloud-sse.iexapis.com/stable/stock/{symbol}/quote?token={key}')
         if len(samesymbol_price)>0:
-            prevshare = db.execute("SELECT share FROM stock WHERE symbol = :symbol AND username=:username", symbol=symbol, username=session["user"])[0]['share']
+            prevshare = db.execute("SELECT share FROM stock WHERE symbol = :symbol AND username=:username", {"symbol":symbol, "username":session["user"]}).fetchall()[0]['share']
             prevshare= float(prevshare)
             newshare= share+prevshare
             price= float(resp.json()['latestPrice'])
@@ -94,23 +98,26 @@ def buy():
             tz_IN = pytz.timezone('Asia/Kolkata')
             datetime_IN = datetime.now(tz_IN)
             transacted = datetime_IN.strftime("%d-%m-%Y %H:%M:%S")
-            cash=db.execute("SELECT cash FROM users WHERE username = :username", username=session["user"])[0]['cash']
+            cash=db.execute("SELECT cash FROM users WHERE username = :username", {"username":session["user"]}).fetchall()[0]['cash']
             cash=float(cash[1:len(cash)])
             if (share*price)<=cash:
                 newcash=cash-(share*price)
                 newcash= f'${newcash}'
                 db.execute('''
                         UPDATE users
-                        SET cash=%s
-                        WHERE username = %s
-                        ''',newcash,session["user"])
+                        SET cash=:cash
+                        WHERE username = :username
+                        ''',{"cash":newcash,"username":session["user"]})
+                db.commit()
                 price= f'${price}'
                 db.execute('''
                         UPDATE stock
-                        SET share=%s,total=%s
-                        WHERE symbol = %s
-                         ''',newshare,newtotal,symbol)
-                db.execute("INSERT INTO history (symbol, share, price, transacted, username) VALUES (:symbol, :share, :price, :transacted, :username)", symbol=symbol, share=share, price=price, transacted=transacted, username=session["user"])
+                        SET share=:share,total=:total
+                        WHERE symbol = :symbol
+                         ''',{"share":newshare,"total":newtotal,"symbol":symbol})
+                db.commit()
+                db.execute("INSERT INTO history (symbol, share, price, transacted, username) VALUES (:symbol, :share, :price, :transacted, :username)", {"symbol":symbol, "share":share, "price":price, "transacted":transacted, "username":session["user"]})
+                db.commit()
                 flash('Bought!')
                 return redirect("/")
             else:
@@ -121,23 +128,26 @@ def buy():
             price= float(resp.json()['latestPrice'])
             name = resp.json()['companyName']
             total= price*share
-            cash=db.execute("SELECT cash FROM users WHERE username = :username", username=session["user"])[0]['cash']
+            cash=db.execute("SELECT cash FROM users WHERE username = :username", {"username":session["user"]}).fetchall()[0]['cash']
             cash=float(cash[1:len(cash)])
             if total<=cash:
                 newcash=cash-total
                 newcash= f'${newcash}'
                 db.execute('''
                         UPDATE users
-                        SET cash=%s
-                        WHERE username = %s
-                        ''',newcash,session["user"])
+                        SET cash=:cash
+                        WHERE username = :username
+                        ''',{"cash":newcash,"username":session["user"]})
+                db.commit()
                 total= f'${total}'
                 price= f'${price}'
                 tz_IN = pytz.timezone('Asia/Kolkata')
                 datetime_IN = datetime.now(tz_IN)
                 transacted = datetime_IN.strftime("%d-%m-%Y %H:%M:%S")
-                db.execute("INSERT INTO stock (symbol, name, share, price, total, username) VALUES (:symbol, :name, :share, :price, :total, :username)", symbol=symbol, name=name, share=share, price=price, total=total, username=session["user"])
-                db.execute("INSERT INTO history (symbol, share, price, transacted, username) VALUES (:symbol, :share, :price, :transacted, :username)", symbol=symbol, share=share, price=price, transacted=transacted, username=session["user"])
+                db.execute("INSERT INTO stock (symbol, name, share, price, total, username) VALUES (:symbol, :name, :share, :price, :total, :username)", {"symbol":symbol, "name":name, "share":share, "price":price, "total":total, "username":session["user"]})
+                db.commit()
+                db.execute("INSERT INTO history (symbol, share, price, transacted, username) VALUES (:symbol, :share, :price, :transacted, :username)", {"symbol":symbol, "share":share, "price":price, "transacted":transacted, "username":session["user"]})
+                db.commit()
                 flash('Bought!')
                 return redirect("/")
             else:
@@ -152,7 +162,7 @@ def buy():
 @login_required
 def history():
     rows= db.execute('''SELECT * FROM history
-    WHERE username=%s''',session["user"])
+    WHERE username=:username''',{"username":session["user"]}).fetchall()
     return render_template("history.html", rows=rows)
 
 
@@ -176,7 +186,8 @@ def login():
 
         # Query database for username
         rows = db.execute("SELECT * FROM users WHERE username = :username",
-                          username=request.form.get("username"))
+                          {"username":request.form.get("username")}).fetchall()
+        print(rows)
 
         # Ensure username exists and password is correct
         if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
@@ -237,7 +248,8 @@ def register():
         if hash == conhash:
             hash = generate_password_hash(hash)
             try:
-                db.execute("INSERT INTO users (username, hash) VALUES (:username, :hash)", username=username, hash=hash)
+                db.execute("INSERT INTO users (username, hash) VALUES (:username, :hash)", {"username":username, "hash":hash})
+                db.commit()
                 return redirect("/")
             except RuntimeError:
                 flash('Username already exist!')
@@ -253,7 +265,7 @@ def register():
 def sell():
     if request.method == "GET":
         rows= db.execute('''SELECT * FROM stock
-        WHERE username=%s''',session["user"])
+        WHERE username=:username''',{"username":session["user"]}).fetchall()
         return render_template("sell.html", rows=rows)
     else:
         curshare = int(request.form.get("share"))
@@ -261,41 +273,45 @@ def sell():
         key = os.environ.get("API_KEY")
         resp = requests.get(f'https://cloud-sse.iexapis.com/stable/stock/{symbol}/quote?token={key}')
         price= resp.json()['latestPrice']
-        prevshare = db.execute("SELECT share FROM stock WHERE symbol = :symbol AND username=:username", symbol=symbol, username=session["user"])[0]['share']
+        prevshare = db.execute("SELECT share FROM stock WHERE symbol = :symbol AND username=:username", {"symbol":symbol, "username":session["user"]}).fetchall()[0]['share']
         if curshare<=prevshare:
             share=prevshare-curshare
             cashtotal=price*curshare
             total=price*share
-            cash=db.execute("SELECT cash FROM users WHERE username = :username",username=session["user"])[0]['cash']
+            cash=db.execute("SELECT cash FROM users WHERE username = :username",{"username":session["user"]}).fetchall()[0]['cash']
             cash=float(cash[1:len(cash)])
             newcash=cash+cashtotal
             newcash= f'${newcash}'
             db.execute('''
                     UPDATE users
-                    SET cash=%s
-                    WHERE username = %s
-                    ''',newcash,session["user"])
+                    SET cash=:cash
+                    WHERE username = :username
+                    ''',{"cash":newcash,"username":session["user"]})
+            db.commit()
             total=f'${total}'
             price=f'${price}'
             tz_IN = pytz.timezone('Asia/Kolkata')
             datetime_IN = datetime.now(tz_IN)
             transacted = datetime_IN.strftime("%d-%m-%Y %H:%M:%S")
-            db.execute("INSERT INTO history (symbol, share, price, transacted, username) VALUES (:symbol, :share, :price, :transacted, :username)", symbol=symbol, share=-curshare, price=price, transacted=transacted, username=session["user"])
+            db.execute("INSERT INTO history (symbol, share, price, transacted, username) VALUES (:symbol, :share, :price, :transacted, :username)", {"symbol":symbol, "share":-curshare, "price":price, "transacted":transacted, "username":session["user"]})
+            db.commit()
             flash('Sold!')
             if share==0:
-                db.execute("DELETE FROM stock WHERE symbol=:symbol AND username = :username", symbol=symbol,username=session["user"])
+                db.execute("DELETE FROM stock WHERE symbol=:symbol AND username = :username", {"symbol":symbol,"username":session["user"]})
+                db.commit()
                 return redirect("/")
             else:
                 db.execute('''
                         UPDATE stock
-                        SET share = %s ,price = %s,total=%s
-                        WHERE symbol = %s  AND username =%s
-                        ''',share,price,total,symbol,session["user"])
+                        SET share = :share ,price = :price,total=:total
+                        WHERE symbol = :symbol  AND username =:username
+                        ''',{"share":share,"price":price,"total":total,"symbol":symbol,"username":session["user"]})
+                db.commit()
                 return redirect("/")
         else:
             flash('Not enough shares to sell!')
             rows= db.execute('''SELECT * FROM stock
-            WHERE username=%s''',session["user"])
+            WHERE username=:username''',{"username":session["user"]}).fetchall()
             return render_template('sell.html', rows=rows)
 
 
