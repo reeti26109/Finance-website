@@ -242,17 +242,20 @@ def register():
         return render_template("register.html")
     else:
         username = request.form.get("username")
+        users=db.execute("SELECT username FROM users").fetchall()
+        for user in users:
+            if user['username'] == username:
+                flash('Username already exist!')
+                return render_template('register.html')
+
         hash = request.form.get("hash1")
         conhash = request.form.get("hash2")
         if hash == conhash:
             hash = generate_password_hash(hash)
-            try:
-                db.execute("INSERT INTO users (username, hash) VALUES (:username, :hash)", {"username":username, "hash":hash})
-                db.commit()
-                return redirect("/")
-            except:
-                flash('Username already exist!')
-                return render_template('register.html')
+            db.execute("INSERT INTO users (username, hash) VALUES (:username, :hash)", {"username":username, "hash":hash})
+            db.commit()
+            return redirect("/")
+                
         else:
             flash('Passwords does not match!')
             return render_template('register.html')
