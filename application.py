@@ -251,7 +251,7 @@ def register():
                 db.execute("INSERT INTO users (username, hash) VALUES (:username, :hash)", {"username":username, "hash":hash})
                 db.commit()
                 return redirect("/")
-            except RuntimeError:
+            except:
                 flash('Username already exist!')
                 return render_template('register.html')
         else:
