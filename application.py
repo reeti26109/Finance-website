@@ -52,7 +52,7 @@ def index():
     for row in rows:
         symbol= row['symbol']
         key = os.environ.get("API_KEY")
-        resp = requests.get(f'https://cloud-sse.iexapis.com/stable/stock/{symbol}/quote?token={key}')
+        resp = requests.get(f'https://cloud.iexapis.com/stable/stock/{symbol}/quote?token={key}')
         updatedprice=float(resp.json()['latestPrice'])
         share= row['share']
         updatedtotal= updatedprice*share
@@ -83,7 +83,7 @@ def buy():
         samesymbol_price=db.execute("SELECT total FROM stock WHERE symbol = :symbol AND username=:username",symbol=symbol, username=session["user"])
         share= float(request.form.get("share"))
         key = os.environ.get("API_KEY")
-        resp = requests.get(f'https://cloud-sse.iexapis.com/stable/stock/{symbol}/quote?token={key}')
+        resp = requests.get(f'https://cloud.iexapis.com/stable/stock/{symbol}/quote?token={key}')
         if len(samesymbol_price)>0:
             prevshare = db.execute("SELECT share FROM stock WHERE symbol = :symbol AND username=:username", symbol=symbol, username=session["user"])[0]['share']
             prevshare= float(prevshare)
@@ -214,7 +214,7 @@ def quote():
         symbol = request.form.get("symbol")
         symbol=symbol.upper()
         key = os.environ.get("API_KEY")
-        resp = requests.get(f'https://cloud-sse.iexapis.com/stable/stock/{symbol}/quote?token={key}')
+        resp = requests.get(f'https://cloud.iexapis.com/stable/stock/{symbol}/quote?token={key}')
         if resp.status_code == 200:
             company = resp.json()['companyName']
             price= resp.json()['latestPrice']
@@ -259,7 +259,7 @@ def sell():
         curshare = int(request.form.get("share"))
         symbol = request.form.get("symbol")
         key = os.environ.get("API_KEY")
-        resp = requests.get(f'https://cloud-sse.iexapis.com/stable/stock/{symbol}/quote?token={key}')
+        resp = requests.get(f'https://cloud.iexapis.com/stable/stock/{symbol}/quote?token={key}')
         price= resp.json()['latestPrice']
         prevshare = db.execute("SELECT share FROM stock WHERE symbol = :symbol AND username=:username", symbol=symbol, username=session["user"])[0]['share']
         if curshare<=prevshare:
